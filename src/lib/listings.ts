@@ -1,67 +1,63 @@
 import type { Property } from "@/types/property";
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST ?? "zillow-com1.p.rapidapi.com";
+const RAPIDAPI_HOST =
+  process.env.RAPIDAPI_HOST ?? "real-estate101.p.rapidapi.com";
 const RAPIDAPI_BASE = `https://${RAPIDAPI_HOST}`;
 
 /**
- * Shape of a single listing from the RapidAPI Zillow /propertyExtendedSearch endpoint.
- * Only the fields we actually use are typed; the rest are unknown.
+ * Shape of a single listing from the real-estate101 /api/search endpoint.
+ * Field names verified against live API response.
  */
 interface RapidApiListing {
-  zpid?: string | number;
-  address?: string;
-  streetAddress?: string;
-  // Some endpoints nest address; others return a flat string
-  addressObj?: {
-    streetAddress?: string;
+  id?: string | number;
+  price?: string; // formatted: "$1,200,000"
+  unformattedPrice?: number; // numeric
+  beds?: number;
+  baths?: number;
+  area?: number;
+  livingArea?: number;
+  lotAreaValue?: number;
+  lotAreaUnit?: string; // "sqft" or "acres"
+  homeType?: string;
+  homeStatus?: string;
+  daysOnZillow?: number;
+  zestimate?: number;
+  imgSrc?: string;
+  detailUrl?: string;
+  address?: {
+    street?: string;
     city?: string;
     state?: string;
     zipcode?: string;
   };
-  city?: string;
-  state?: string;
-  zipcode?: string;
-  latitude?: number;
-  longitude?: number;
-  price?: number;
-  zestimate?: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  livingArea?: number;
-  lotAreaValue?: number;
-  lotAreaUnit?: string;
-  daysOnZillow?: number;
-  imgSrc?: string;
-  detailUrl?: string;
-  homeType?: string;
+  latLong?: {
+    latitude?: number;
+    longitude?: number;
+  };
   yearBuilt?: number;
+  taxAssessedValue?: number;
 }
 
 /**
- * Shape of the /propertyExtendedSearch response.
+ * Shape of the /api/search response.
  */
 interface SearchResponse {
-  props?: RapidApiListing[];
-  totalResultCount?: number;
+  success?: boolean;
+  totalCount?: number;
+  filteredCount?: number;
+  results?: RapidApiListing[];
 }
 
 /**
- * Normalize a RapidAPI Zillow listing into our internal Property type.
- * Elevation fields are left null — they are populated by the /api/elevation routes.
- * Any missing/undefined field uses null rather than crashing.
+ * Normalize a real-estate101 listing into our internal Property type.
+ * Elevation fields are left null — populated by /api/elevation routes.
  */
 export function normalizeRapidApiListing(raw: RapidApiListing): Property {
-  // Address can come as a flat string or nested object depending on endpoint
-  const streetAddress =
-    raw.streetAddress ??
-    raw.addressObj?.streetAddress ??
-    (typeof raw.address === "string" ? raw.address : undefined) ??
-    "Unknown address";
-
-  const city = raw.city ?? raw.addressObj?.city ?? "";
-  const state = raw.state ?? raw.addressObj?.state ?? "";
-  const zip = raw.zipcode ?? raw.addressObj?.zipcode ?? "";
+  const streetAddress = raw.address?.street ?? "Unknown address";
+  const city = raw.address?.city ?? "";
+  const state = raw.address?.state ?? "";
+  const zip = raw.address?.zipcode ?? "";
 
   // Lot size: convert acres → sqft if needed
   let lotSize: number | null = null;
@@ -73,25 +69,25 @@ export function normalizeRapidApiListing(raw: RapidApiListing): Property {
         : Math.round(raw.lotAreaValue);
   }
 
-  // Listing URL: prepend zillow.com if relative
+  // Listing URL: always full on this API but guard anyway
   let listingUrl = raw.detailUrl ?? "";
   if (listingUrl && listingUrl.startsWith("/")) {
     listingUrl = `https://www.zillow.com${listingUrl}`;
   }
 
   return {
-    id: String(raw.zpid ?? Math.random().toString(36).slice(2)),
+    id: String(raw.id ?? Math.random().toString(36).slice(2)),
     address: streetAddress,
     city,
     state,
     zip,
-    lat: raw.latitude ?? 0,
-    lng: raw.longitude ?? 0,
-    price: raw.price ?? null,
+    lat: raw.latLong?.latitude ?? 0,
+    lng: raw.latLong?.longitude ?? 0,
+    price: raw.unformattedPrice ?? null,
     zestimate: raw.zestimate ?? null,
-    beds: raw.bedrooms ?? 0,
-    baths: raw.bathrooms ?? 0,
-    sqft: raw.livingArea ?? null,
+    beds: raw.beds ?? 0,
+    baths: raw.baths ?? 0,
+    sqft: raw.livingArea ?? raw.area ?? null,
     lotSize,
     yearBuilt: raw.yearBuilt ?? null,
     propertyType: raw.homeType ?? null,
@@ -104,35 +100,31 @@ export function normalizeRapidApiListing(raw: RapidApiListing): Property {
   };
 }
 
-/**
- * Normalize an array of raw RapidAPI listings.
- */
 export function normalizeListings(rawListings: RapidApiListing[]): Property[] {
   return rawListings.map(normalizeRapidApiListing);
 }
 
 /**
- * Fetch listings from RapidAPI Zillow (zillow-com1.p.rapidapi.com).
- * Uses /propertyExtendedSearch with status_type=ForSale and home_type=Houses.
- *
- * Throws on network/API errors — callers should catch and fall back to seed data.
+ * Fetch listings from real-estate101.p.rapidapi.com /api/search.
+ * Searches Golden, Wheat Ridge, and Applewood area for homes for sale.
+ * Throws on error — caller should catch and fall back to seed data.
  */
 export async function fetchListingsFromRapidAPI(
   location = "Golden, CO",
 ): Promise<Property[]> {
   if (!RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY not set");
 
-  const url = new URL(`${RAPIDAPI_BASE}/propertyExtendedSearch`);
+  const url = new URL(`${RAPIDAPI_BASE}/api/search`);
   url.searchParams.set("location", location);
   url.searchParams.set("status_type", "ForSale");
   url.searchParams.set("home_type", "Houses");
+  url.searchParams.set("page", "1");
 
   const res = await fetch(url.toString(), {
     headers: {
       "x-rapidapi-key": RAPIDAPI_KEY,
       "x-rapidapi-host": RAPIDAPI_HOST,
     },
-    // Next.js ISR cache — revalidate every hour at the route level
     next: { revalidate: 3600 },
   });
 
@@ -141,10 +133,12 @@ export async function fetchListingsFromRapidAPI(
   }
 
   const data = (await res.json()) as SearchResponse;
-  const props = data.props ?? [];
+  const results = data.results ?? [];
 
-  // Filter out entries with no lat/lng (unusable on the map)
-  const valid = props.filter((p) => p.latitude != null && p.longitude != null);
+  // Filter out entries missing coordinates (unusable on map)
+  const valid = results.filter(
+    (p) => p.latLong?.latitude != null && p.latLong?.longitude != null,
+  );
 
   return normalizeListings(valid);
 }
