@@ -12,7 +12,8 @@ import type { Property } from "@/types/property";
 async function fetchListings(): Promise<Property[]> {
   const res = await fetch("/api/listings");
   if (!res.ok) throw new Error("Failed to fetch listings");
-  return res.json() as Promise<Property[]>;
+  const data = (await res.json()) as { properties: Property[] };
+  return data.properties ?? [];
 }
 
 export default function Home() {
