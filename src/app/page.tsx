@@ -227,11 +227,45 @@ export default function Home() {
         <PropertySidebar />
       </div>
 
+      {/* Mobile card strip — hidden on desktop, shown below map on mobile */}
+      <div className="mobile-strip" style={{ display: "none" }}>
+        {visibleListings.map((property) => (
+          <div key={property.id} style={{ flexShrink: 0, width: "280px" }}>
+            <PropertyCard
+              property={property}
+              isActive={selectedProperty?.id === property.id}
+              onClick={() => handleCardClick(property)}
+            />
+          </div>
+        ))}
+      </div>
+
       {/* ── Mobile styles ─────────────────────────────────── */}
       <style>{`
         @media (max-width: 768px) {
           .left-rail {
             display: none !important;
+          }
+          main {
+            flex-direction: column !important;
+          }
+          .mobile-strip {
+            display: flex !important;
+            height: 145px;
+            flex-shrink: 0;
+            overflow-x: auto;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+          }
+          .mobile-strip::-webkit-scrollbar {
+            display: none;
+          }
+          .mobile-strip > div > div {
+            margin-bottom: 0 !important;
           }
         }
       `}</style>

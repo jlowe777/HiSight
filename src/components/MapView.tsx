@@ -8,7 +8,7 @@ import Map, {
   type MapRef,
   type MapLayerMouseEvent,
 } from "react-map-gl";
-import type { Map as MapboxMap } from "mapbox-gl";
+import type { Map as MapboxMap, FilterSpecification } from "mapbox-gl";
 import type { GeoJSON } from "geojson";
 import { useQuery } from "@tanstack/react-query";
 import { useMapStore } from "@/store/mapStore";
@@ -48,7 +48,7 @@ function listingsToGeoJSON(listings: Property[]): GeoJSON.FeatureCollection {
       properties: {
         id: p.id,
         price: p.price,
-        elevation: p.elevation,
+        ...(p.elevation !== null ? { elevation: p.elevation } : {}),
         localProminence: p.localProminence,
         beds: p.beds,
         baths: p.baths,
@@ -101,19 +101,21 @@ export default function MapView({
     const minM = minFt * FT_TO_M;
     const maxM = maxFt * FT_TO_M;
 
-    if (map.getLayer("property-pins-circle")) {
-      map.setFilter("property-pins-circle", [
+    const f = [
+      "any",
+      ["!", ["has", "elevation"]],
+      [
         "all",
-        [">=", ["coalesce", ["get", "elevation"], 0], minM],
-        ["<=", ["coalesce", ["get", "elevation"], 0], maxM],
-      ]);
+        [">=", ["get", "elevation"], minM],
+        ["<=", ["get", "elevation"], maxM],
+      ],
+    ] as FilterSpecification;
+
+    if (map.getLayer("property-pins-circle")) {
+      map.setFilter("property-pins-circle", f);
     }
     if (map.getLayer("property-pins-label")) {
-      map.setFilter("property-pins-label", [
-        "all",
-        [">=", ["coalesce", ["get", "elevation"], 0], minM],
-        ["<=", ["coalesce", ["get", "elevation"], 0], maxM],
-      ]);
+      map.setFilter("property-pins-label", f);
     }
   }, [elevationFilter]);
 
@@ -128,19 +130,20 @@ export default function MapView({
     const maxM = maxFt * FT_TO_M;
 
     const applyInitialFilter = () => {
-      if (map.getLayer("property-pins-circle")) {
-        map.setFilter("property-pins-circle", [
+      const f = [
+        "any",
+        ["!", ["has", "elevation"]],
+        [
           "all",
-          [">=", ["coalesce", ["get", "elevation"], 0], minM],
-          ["<=", ["coalesce", ["get", "elevation"], 0], maxM],
-        ]);
+          [">=", ["get", "elevation"], minM],
+          ["<=", ["get", "elevation"], maxM],
+        ],
+      ] as FilterSpecification;
+      if (map.getLayer("property-pins-circle")) {
+        map.setFilter("property-pins-circle", f);
       }
       if (map.getLayer("property-pins-label")) {
-        map.setFilter("property-pins-label", [
-          "all",
-          [">=", ["coalesce", ["get", "elevation"], 0], minM],
-          ["<=", ["coalesce", ["get", "elevation"], 0], maxM],
-        ]);
+        map.setFilter("property-pins-label", f);
       }
     };
 
@@ -269,7 +272,12 @@ export default function MapView({
           id="property-pins-circle"
           type="circle"
           paint={{
-            "circle-radius": 10,
+            "circle-radius": [
+              "case",
+              ["==", ["get", "id"], selectedProperty?.id ?? ""],
+              14,
+              10,
+            ],
             "circle-color": [
               "case",
               ["<", ["coalesce", ["get", "elevation"], 0], LOW_MID_M],
@@ -278,13 +286,17 @@ export default function MapView({
               "#D4A84B",
               "#8B5E3C",
             ],
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#ffffff",
-            "circle-opacity": [
+            "circle-stroke-width": [
               "case",
               ["==", ["get", "id"], selectedProperty?.id ?? ""],
-              1,
-              0.9,
+              3,
+              2,
+            ],
+            "circle-stroke-color": [
+              "case",
+              ["==", ["get", "id"], selectedProperty?.id ?? ""],
+              "#2D6A4F",
+              "#ffffff",
             ],
           }}
         />
