@@ -92,7 +92,15 @@ function ProfileSkeleton() {
 
 // ─── Chart fetching wrapper ──────────────────────────────────────────
 
-function ElevationSection({ lat, lng }: { lat: number; lng: number }) {
+function ElevationSection({
+  lat,
+  lng,
+  propertyElevationM,
+}: {
+  lat: number;
+  lng: number;
+  propertyElevationM?: number | null;
+}) {
   const {
     data: profile,
     isLoading,
@@ -136,7 +144,10 @@ function ElevationSection({ lat, lng }: { lat: number; lng: number }) {
           </span>
         </div>
       ) : profile ? (
-        <ElevationProfileChart profile={profile} />
+        <ElevationProfileChart
+          profile={profile}
+          propertyElevationM={propertyElevationM}
+        />
       ) : null}
       <p
         style={{
@@ -452,7 +463,11 @@ export default function PropertySidebar() {
               </div>
 
               {/* Chart */}
-              <ElevationSection lat={p.lat} lng={p.lng} />
+              <ElevationSection
+                lat={p.lat}
+                lng={p.lng}
+                propertyElevationM={p.elevation}
+              />
             </div>
 
             {/* Listing Details */}

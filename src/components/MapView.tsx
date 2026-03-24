@@ -13,6 +13,7 @@ import type { GeoJSON } from "geojson";
 import { useQuery } from "@tanstack/react-query";
 import { useMapStore } from "@/store/mapStore";
 import type { Property } from "@/types/property";
+import { generateWestTransect } from "@/lib/transect";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
@@ -83,6 +84,7 @@ export default function MapView({
     setSidebarOpen,
     elevationFilter,
     selectedProperty,
+    sidebarOpen,
   } = useMapStore();
 
   const { data: listings = [] } = useQuery<Property[]>({
@@ -91,6 +93,28 @@ export default function MapView({
   });
 
   const geojson = listingsToGeoJSON(listings);
+
+  // Transect line: 30km due west from selected property
+  const transectLine: GeoJSON.FeatureCollection = selectedProperty
+    ? {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: generateWestTransect(
+                selectedProperty.lat,
+                selectedProperty.lng,
+                30,
+                2,
+              ).map((pt) => [pt.lng, pt.lat]),
+            },
+            properties: {},
+          },
+        ],
+      }
+    : { type: "FeatureCollection", features: [] };
 
   // Apply elevation filter whenever it changes (GPU-side, no re-render)
   useEffect(() => {
@@ -175,11 +199,13 @@ export default function MapView({
           setSidebarOpen(true);
           onPropertySelect?.(property);
 
-          // Fly to pin
+          // Fly to pin — tilt toward mountains for terrain context
           map.flyTo({
             center: [property.lng, property.lat],
             zoom: Math.max(map.getZoom(), 13),
-            duration: 600,
+            pitch: 60,
+            bearing: -15,
+            duration: 900,
             easing: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
           });
         }
@@ -207,10 +233,20 @@ export default function MapView({
     map.flyTo({
       center: [selectedProperty.lng, selectedProperty.lat],
       zoom: Math.max(map.getZoom(), 13),
-      duration: 600,
+      pitch: 60,
+      bearing: -15,
+      duration: 900,
       easing: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
     });
   }, [selectedProperty]);
+
+  // Reset camera when sidebar closes
+  useEffect(() => {
+    if (sidebarOpen) return;
+    const map = mapRef.current?.getMap() as MapboxMap | undefined;
+    if (!map || !map.isStyleLoaded()) return;
+    map.easeTo({ pitch: 45, bearing: 0, duration: 700 });
+  }, [sidebarOpen]);
 
   return (
     <Map
@@ -317,6 +353,20 @@ export default function MapView({
             "text-color": "#1A1A18",
             "text-halo-color": "#ffffff",
             "text-halo-width": 1.5,
+          }}
+        />
+      </Source>
+
+      {/* Transect line — shows where the elevation profile is measured */}
+      <Source id="transect-line" type="geojson" data={transectLine}>
+        <Layer
+          id="transect-line-layer"
+          type="line"
+          paint={{
+            "line-color": "#2D6A4F",
+            "line-width": 1.5,
+            "line-dasharray": [5, 4],
+            "line-opacity": selectedProperty ? 0.55 : 0,
           }}
         />
       </Source>
