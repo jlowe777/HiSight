@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useMemo } from "react";
 import Map, {
   Source,
   Layer,
@@ -92,7 +92,22 @@ export default function MapView({
     queryFn: fetchListings,
   });
 
-  const geojson = listingsToGeoJSON(listings);
+  const geojson = useMemo(() => listingsToGeoJSON(listings), [listings]);
+
+  // Elevation filter — computed declaratively and passed as `filter` prop to
+  // <Layer>, so it's always in sync with React state and never lost on re-render.
+  const [minFt, maxFt] = elevationFilter;
+  const minM = minFt * FT_TO_M;
+  const maxM = maxFt * FT_TO_M;
+  const pinFilter: FilterSpecification = [
+    "any",
+    ["!", ["has", "elevation"]],
+    [
+      "all",
+      [">=", ["get", "elevation"], minM],
+      ["<=", ["get", "elevation"], maxM],
+    ],
+  ];
 
   // Transect line: 30km due west from selected property
   const transectLine: GeoJSON.FeatureCollection = selectedProperty
@@ -116,63 +131,10 @@ export default function MapView({
       }
     : { type: "FeatureCollection", features: [] };
 
-  // Apply elevation filter whenever it changes (GPU-side, no re-render)
-  useEffect(() => {
-    const map = mapRef.current?.getMap() as MapboxMap | undefined;
-    if (!map || !map.isStyleLoaded()) return;
-
-    const [minFt, maxFt] = elevationFilter;
-    const minM = minFt * FT_TO_M;
-    const maxM = maxFt * FT_TO_M;
-
-    const f = [
-      "any",
-      ["!", ["has", "elevation"]],
-      [
-        "all",
-        [">=", ["get", "elevation"], minM],
-        ["<=", ["get", "elevation"], maxM],
-      ],
-    ] as FilterSpecification;
-
-    if (map.getLayer("property-pins-circle")) {
-      map.setFilter("property-pins-circle", f);
-    }
-    if (map.getLayer("property-pins-label")) {
-      map.setFilter("property-pins-label", f);
-    }
-  }, [elevationFilter]);
-
   const handleLoad = useCallback(() => {
     const map = mapRef.current?.getMap() as MapboxMap | undefined;
     if (!map) return;
     map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
-
-    // Apply initial filter once style is loaded
-    const [minFt, maxFt] = useMapStore.getState().elevationFilter;
-    const minM = minFt * FT_TO_M;
-    const maxM = maxFt * FT_TO_M;
-
-    const applyInitialFilter = () => {
-      const f = [
-        "any",
-        ["!", ["has", "elevation"]],
-        [
-          "all",
-          [">=", ["get", "elevation"], minM],
-          ["<=", ["get", "elevation"], maxM],
-        ],
-      ] as FilterSpecification;
-      if (map.getLayer("property-pins-circle")) {
-        map.setFilter("property-pins-circle", f);
-      }
-      if (map.getLayer("property-pins-label")) {
-        map.setFilter("property-pins-label", f);
-      }
-    };
-
-    // Layers may not exist yet if data isn't loaded — check after idle
-    map.once("idle", applyInitialFilter);
   }, []);
 
   const handleClick = useCallback(
@@ -307,6 +269,7 @@ export default function MapView({
         <Layer
           id="property-pins-circle"
           type="circle"
+          filter={pinFilter}
           paint={{
             "circle-radius": [
               "case",
@@ -341,6 +304,7 @@ export default function MapView({
         <Layer
           id="property-pins-label"
           type="symbol"
+          filter={pinFilter}
           layout={{
             "text-field": ["get", "priceLabel"],
             "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
